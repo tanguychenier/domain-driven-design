@@ -5,25 +5,35 @@
 ## Table des matières
 
 - [Introduction](#introduction)
+- [Quand DDD ne vaut pas le coût](#quand-ddd-ne-vaut-pas-le-coût)
 - [Glossaire express](#glossaire-express)
 - [DDD stratégique vs DDD tactique](#ddd-stratégique-vs-ddd-tactique)
+- [Sous-domaines : core, supporting, generic](#sous-domaines--core-supporting-generic)
 - [Modélisation du domaine](#modélisation-du-domaine)
 - [Langage ubiquitaire](#langage-ubiquitaire)
 - [Bounded Contexts](#bounded-contexts)
+- [Bounded Context Canvas](#bounded-context-canvas)
 - [Context Map : les patterns de relation](#context-map--les-patterns-de-relation)
 - [Entités, objets-valeurs et agrégats](#entités-objets-valeurs-et-agrégats)
 - [Règles de conception des agrégats (Vernon)](#règles-de-conception-des-agrégats-vernon)
+- [Frontières d'agrégats : un choix de conception, pas une vérité](#frontières-dagrégats--un-choix-de-conception-pas-une-vérité)
 - [Factories et Modules](#factories-et-modules)
 - [Repositories et Domain Services](#repositories-et-domain-services)
 - [Application Services et CQRS](#application-services-et-cqrs)
+- [CQRS et Event Sourcing : indépendants](#cqrs-et-event-sourcing--indépendants)
 - [Événements de domaine et Event Sourcing](#événements-de-domaine-et-event-sourcing)
+- [Outbox Pattern : publication fiable des événements](#outbox-pattern--publication-fiable-des-événements)
 - [Sagas et Process Managers](#sagas-et-process-managers)
+- [Cohérence à terme : compensations et garanties](#cohérence-à-terme--compensations-et-garanties)
 - [Domain Events vs Integration Events](#domain-events-vs-integration-events)
 - [Anti-Corruption Layer](#anti-corruption-layer)
 - [Specification Pattern](#specification-pattern)
+- [DDD fonctionnel : modéliser sans objets](#ddd-fonctionnel--modéliser-sans-objets)
 - [Exemple intégré : e-commerce multi-contextes](#exemple-intégré--e-commerce-multi-contextes)
 - [Pièges classiques](#pièges-classiques)
+- [Le côté obscur : DDD comme jeu de vocabulaire](#le-côté-obscur--ddd-comme-jeu-de-vocabulaire)
 - [DDD et architectures voisines](#ddd-et-architectures-voisines)
+- [Monolithe modulaire vs microservices](#monolithe-modulaire-vs-microservices)
 - [Pour aller plus loin](#pour-aller-plus-loin)
 
 ---
@@ -43,6 +53,40 @@ Cette approche prend tout son intérêt dès qu'un projet dépasse le simple CRU
   - *Supporting subdomain* — nécessaire mais non différenciant ; on peut le développer simplement.
   - *Generic subdomain* — résolu par n'importe quel acteur du marché (authentification, facturation standard) ; à acheter ou intégrer.
 - **Espace problème vs espace solution** : les sous-domaines décrivent le *problème* à résoudre ; les bounded contexts décrivent la *solution* logicielle. Le mapping n'est pas forcément 1-1.
+
+[🔝 Retour en haut de page](#table-des-matières)
+
+## Quand DDD ne vaut pas le coût
+
+> **Définition — critère de complexité d'Evans.** Eric Evans lui-même, dans la préface de la *DDD Reference* (2015), rappelle que *« DDD est destiné aux domaines complexes, pas à toute application »*. La discipline a un **coût d'entrée** non négligeable (langage ubiquitaire à entretenir, ateliers métier, modélisation tactique, isolation infrastructure) ; elle ne se rentabilise que là où la **complexité métier** dépasse la complexité technique.
+
+### Cas où DDD est probablement surdimensionné
+
+- **CRUD pur** : un back-office d'administration où chaque écran édite directement des champs d'une table. Aucun invariant non trivial, aucun vocabulaire métier subtil. Un *Active Record* ou un générateur d'admin (Filament, Django Admin, Backpack) coûtera dix fois moins.
+- **MVP exploratoire / *throwaway* code** : tant que le métier n'a pas validé qu'il y a un produit, figer un modèle riche, c'est figer une mauvaise hypothèse. Préférer un prototypage rapide ; reconstruire en DDD une fois le marché validé.
+- **Sous-domaine *generic*** : authentification, paie standard, envoi d'emails, gestion documentaire générique. Ces zones se résolvent par achat ou intégration (Auth0, Stripe, S3) ; investir un modèle riche dessus est un gaspillage.
+- **Outils internes à courte durée de vie** : scripts ETL, dashboards éphémères, *one-shot* de migration. Le ROI d'une modélisation soignée n'est jamais atteint.
+- **Équipe sans expert métier disponible** : sans expert métier accessible plusieurs heures par semaine, le langage ubiquitaire devient un vœu pieux. Mieux vaut un code honnêtement technique qu'un DDD-théâtre.
+
+### Cas où DDD se justifie pleinement
+
+- **Core domain** d'une activité où la règle métier *est* l'avantage compétitif (tarification d'assurance, scoring de risque, allocation logistique, calcul réglementaire).
+- **Vocabulaire métier riche et évolutif** : les experts emploient des dizaines de termes précis, distinguent des nuances que le code doit refléter sans perte.
+- **Multi-équipes** : plusieurs équipes travaillent simultanément sur des morceaux du système et doivent communiquer sans casser leurs modèles respectifs.
+- **Long terme** : application appelée à vivre dix ans ou plus, avec rotation d'équipe — l'investissement dans un modèle explicite paie en dette technique évitée.
+
+### Heuristique de décision
+
+| Signal | Verdict |
+|--------|---------|
+| Le métier dit *« c'est juste un formulaire avec une liste »* | Pas DDD. CRUD assumé. |
+| L'expert métier vous corrige sur 3 termes par réunion | DDD pertinent : langage ubiquitaire à formaliser. |
+| Aucun invariant ne vaut plus qu'une validation de champ | Pas DDD tactique. Validation suffit. |
+| Plusieurs règles s'entremêlent et changent ensemble | DDD tactique : agrégats, services domaine. |
+| Une équipe, un service, un déploiement | Stratégique léger ; tactique au cas par cas. |
+| Plusieurs équipes, contrats inter-services à stabiliser | Stratégique critique : contextes, ACL, OHS. |
+
+> **Garde-fou.** L'erreur la plus commune n'est pas de *ne pas faire* de DDD : c'est d'en faire **partout uniformément**. Distinguer *core*, *supporting* et *generic* permet d'investir le bon niveau d'effort au bon endroit, et de **ne pas surconcevoir** ce qui n'a aucune valeur différenciante.
 
 [🔝 Retour en haut de page](#table-des-matières)
 
@@ -118,6 +162,42 @@ graph TD
 ```
 
 Règle pratique : **commencer toujours par le stratégique**. Un découpage en contextes mauvais ne se rattrape pas avec des patterns tactiques élégants.
+
+[🔝 Retour en haut de page](#table-des-matières)
+
+## Sous-domaines : core, supporting, generic
+
+> **Définition — sous-domaine.** Un *sous-domaine* est une zone fonctionnelle du domaine identifiée à partir du métier. La typologie d'Eric Evans (reprise et systématisée par Vernon) distingue trois natures, qui dictent le **niveau d'investissement** technique attendu.
+
+### Les trois natures, avec critères
+
+| Type | Définition | Indices de reconnaissance | Stratégie d'investissement |
+|------|------------|---------------------------|----------------------------|
+| **Core domain** | Là où l'organisation se différencie de ses concurrents. C'est *la raison pour laquelle on construit le logiciel sur mesure*. | Le métier en parle longuement et avec des nuances ; les règles changent souvent ; un échec de modélisation a un impact stratégique direct. | Investir massivement : meilleurs développeurs, DDD tactique complet, tests intensifs, refactoring continu. |
+| **Supporting subdomain** | Nécessaire au fonctionnement, propre au métier, mais sans avantage compétitif. | Spécifique à l'organisation mais peu d'innovation ; règles métier réelles mais stables. | Modéliser proprement, sans excès ; DDD tactique sélectif (au moins langage ubiquitaire et bounded contexts). |
+| **Generic subdomain** | Problème déjà résolu par le marché, identique chez tous les acteurs. | Authentification, gestion de fichiers, facturation comptable standard, envoi d'emails. | **Acheter, intégrer, déléguer**. Si on doit le développer, le faire le plus simplement possible. |
+
+### Critères de classification
+
+Pour trancher la nature d'un sous-domaine, poser ces questions au métier :
+
+1. *« Si un concurrent avait exactement la même chose, perdrions-nous un avantage ? »* — Si oui : **core**. Sinon : pas core.
+2. *« Existe-t-il un produit du marché qui le résout sans personnalisation ? »* — Si oui : **generic**. Sinon : supporting ou core.
+3. *« Combien de fois cette règle a-t-elle changé en deux ans ? »* — Beaucoup, et c'est sensible : **core**. Peu : supporting ou generic.
+4. *« Qui sont les meilleurs experts internes ? »* — Si la connaissance est concentrée chez un ou deux experts internes : **core**.
+
+### Anti-pattern : tout traiter comme core
+
+Investir un effort *core domain* sur un sous-domaine *generic* (réécrire un système d'authentification, recoder un éditeur de PDF) est une dilapidation de ressources et un risque opérationnel. Symétriquement, traiter le *core* comme du *generic* (déléguer à un SaaS la règle qui *est* l'avantage compétitif) revient à offrir son business model à un fournisseur. La discipline DDD commence par cette **allocation d'effort différenciée**.
+
+```mermaid
+graph TD
+    A[Sous-domaine identifié] --> B{Avantage<br/>compétitif ?}
+    B -- oui --> C[CORE<br/>investir DDD complet]
+    B -- non --> D{Solution<br/>marché ?}
+    D -- oui --> E[GENERIC<br/>acheter / intégrer]
+    D -- non --> F[SUPPORTING<br/>modéliser sobrement]
+```
 
 [🔝 Retour en haut de page](#table-des-matières)
 
@@ -312,6 +392,41 @@ Eric Evans définit plusieurs patterns pour décrire les relations inter-context
 
 [🔝 Retour en haut de page](#table-des-matières)
 
+## Bounded Context Canvas
+
+> **Définition — Bounded Context Canvas.** Outil moderne de conception stratégique formalisé par **Nick Tune** et le [DDD Crew](https://github.com/ddd-crew/bounded-context-canvas) (2019), inspiré du *Business Model Canvas*. Il sert à **caractériser un Bounded Context sur une seule page** lors d'un atelier de cadrage, avant de figer son contour ou ses dépendances.
+
+### À quoi il répond
+
+Un Context Map montre *les relations entre* contextes ; le Bounded Context Canvas montre *l'identité d'un* contexte. Les deux sont complémentaires : on remplit un Canvas par contexte, puis on les relie sur la Map.
+
+### Les cases du Canvas
+
+| Case | Question à laquelle elle répond |
+|------|---------------------------------|
+| **Nom** | Comment le métier appelle-t-il ce contexte ? |
+| **Description** | En une phrase, que fait-il ? |
+| **Classification stratégique** | Core, supporting ou generic ? Pourquoi ? |
+| **Domain Roles** | Spécification, exécution, audit, analytique, gateway... |
+| **Inbound Communications** | Qui appelle ce contexte, sous quel contrat (synchrone/asynchrone, push/pull) ? |
+| **Outbound Communications** | Qui ce contexte appelle-t-il, sous quel contrat ? |
+| **Ubiquitous Language** | Liste des termes métier propres à ce contexte. |
+| **Business Decisions** | Quelles décisions métier ce contexte prend-il *seul* ? |
+| **Assumptions** | Hypothèses fortes (utilisateurs concurrents, volumétrie, SLA). |
+| **Verification Metrics** | Comment vérifie-t-on que le contexte fait son travail ? |
+| **Open Questions** | Sujets non tranchés à reprendre au prochain atelier. |
+
+### Pourquoi cet outil prend de l'importance
+
+- Il **rend explicite** ce qui était implicite dans la documentation classique : rôles, hypothèses, métriques.
+- Il accélère l'**onboarding** : un Canvas par contexte donne au nouvel arrivant la boussole macro en une heure.
+- Il prépare la conversation **inter-équipes** : montrer son Canvas à l'équipe voisine fait apparaître les contradictions plus vite qu'une review d'API.
+- Il s'intègre avec d'autres outils du **DDD Crew** : *Core Domain Chart*, *EventStorming*, *Aggregate Design Canvas*.
+
+> **Bonne pratique.** Remplir le Canvas en atelier (45 min à 1 h), à l'oral, en équipe mixte métier/tech. Le Canvas n'est pas un livrable contractuel : c'est une trace de la conversation, à réviser à chaque évolution majeure.
+
+[🔝 Retour en haut de page](#table-des-matières)
+
 ## Context Map : les patterns de relation
 
 La *Context Map* documente honnêtement comment les Bounded Contexts s'articulent — équipes, dépendances, contrats, rapports de force. Sa valeur tient à sa fidélité au réel : une carte qui décrit la situation idéale n'est qu'un vœu pieux.
@@ -473,6 +588,38 @@ sequenceDiagram
 ```
 
 Quand exiger la cohérence forte (deux agrégats dans la même transaction) ? Réponse de Vernon : **presque jamais**. Si on en a vraiment besoin, c'est probablement que le découpage est faux — ou que la règle métier elle-même tolère une asynchronie qu'on n'a pas vue.
+
+[🔝 Retour en haut de page](#table-des-matières)
+
+## Frontières d'agrégats : un choix de conception, pas une vérité
+
+> **Définition — frontière d'agrégat.** La frontière d'un agrégat est une **décision de conception** sur où passe la limite de cohérence transactionnelle. Elle n'est *pas* une propriété intrinsèque du domaine qu'il suffirait de découvrir — deux équipes compétentes peuvent légitimement aboutir à des découpages différents, en fonction du contexte d'usage, de la volumétrie, du modèle de concurrence et des cas d'usage prioritaires.
+
+### Pourquoi c'est important de l'admettre
+
+La littérature DDD débutante laisse parfois entendre qu'il existe **un** « bon » agrégat à trouver, comme on chercherait une vérité cachée dans le métier. C'est faux et démobilisant :
+
+- les invariants métier réels ne dictent souvent qu'une **partie** de la frontière ; le reste est un arbitrage technique (verrouillage, latence, granularité de cache, structure des messages) ;
+- une nouvelle exigence (un cas d'usage à très haute fréquence, un changement de SLA) peut justifier de **revoir** une frontière, sans que le domaine lui-même ait changé ;
+- présenter l'agrégat comme « découvrable » alimente le mythe de l'analyste DDD oraculaire et empêche les équipes de **discuter** ouvertement leurs choix.
+
+### Trois exemples de découpage légitimement différent
+
+| Scénario | Choix possible A | Choix possible B | Critère qui tranche |
+|----------|------------------|------------------|---------------------|
+| Commande e-commerce avec lignes | `Commande` agrège ses `LigneCommande` | `Commande` et `LigneCommande` sont deux agrégats reliés par identifiant | Volume de lignes par commande, fréquence d'ajout/retrait après création |
+| Bilan comptable | `ExerciceComptable` agrège tous les comptes et écritures | `ExerciceComptable`, `Compte`, `Ecriture` séparés, reliés par ID | Concurrence d'écriture, taille du bilan, audit ligne à ligne ou global |
+| Dossier patient | `Patient` agrège son historique médical | `Patient` distinct de `DossierMedical` (un par épisode) | Confidentialité par épisode, durée de conservation, autorisations |
+
+### Critères pour trancher
+
+- **Invariants** : quelle règle métier doit être vraie *immédiatement après* chaque transaction ? Tout ce qu'elle touche est dans le même agrégat.
+- **Concurrence** : si deux utilisateurs modifient des sous-parties indépendantes simultanément, doit-on absolument les sérialiser ? Si non, scinder.
+- **Cycle de vie** : si deux entités naissent et meurent à des moments différents, c'est probablement deux agrégats.
+- **Volumétrie** : un agrégat ne doit pas dépasser ce qu'on charge raisonnablement en mémoire (Vernon parle de « petits agrégats »).
+- **Cas d'usage de lecture** : si toutes les lectures portent sur la grappe complète, agréger est tentant ; si la plupart portent sur un sous-ensemble, scinder.
+
+> **Honnêteté de conception.** Documenter dans un **ADR** (*Architecture Decision Record*) le choix de frontière et les alternatives écartées, c'est se donner les moyens de **re-discuter** la décision plus tard, sans dogmatisme. Le texte doit dire : *« étant donné ces invariants, ce volume, ce SLA, nous choisissons cette frontière ; nous la révisons si X change »*.
 
 [🔝 Retour en haut de page](#table-des-matières)
 
@@ -648,6 +795,42 @@ CQRS ne se justifie que là où lecture et écriture ont des modèles ou des cha
 
 [🔝 Retour en haut de page](#table-des-matières)
 
+## CQRS et Event Sourcing : indépendants
+
+> **Définition — indépendance CQRS / ES.** *CQRS* (séparation lecture/écriture) et *Event Sourcing* (persistance par événements) sont **deux décisions orthogonales**. La littérature les présente parfois comme un package indissociable, c'est trompeur. On peut adopter l'un sans l'autre, et chaque combinaison a son sens.
+
+### Les quatre combinaisons possibles
+
+| | **Sans CQRS** | **Avec CQRS** |
+|---|---------------|---------------|
+| **Sans ES** | Architecture classique : un modèle, une base, lecture et écriture par les mêmes objets. **Cas par défaut**, suffisant pour la majorité des applications. | Modèles de lecture dédiés (vues SQL dénormalisées, projections), persistance d'état classique. **Très utile** quand les requêtes divergent fortement des invariants d'écriture. |
+| **Avec ES** | Event Sourcing « pur » : le store est l'historique, l'état courant est reconstruit à la lecture. Possible mais **inhabituel** : on bascule rarement en ES sans CQRS, car les requêtes deviennent rapidement coûteuses. | Combinaison classique présentée par Greg Young : commands → events → projections → reads. **Puissante mais coûteuse**, à réserver aux domaines où la traçabilité est exigée. |
+
+### Quand CQRS sans ES
+
+- on a un **modèle d'écriture riche** (agrégats DDD, invariants), mais les lectures dominantes sont des listes/dashboards/recherches qui n'ont pas besoin de l'objet métier ;
+- on veut introduire **plusieurs vues** optimisées (par client, par fournisseur, par exercice) sans tordre les agrégats ;
+- on cible la **performance** (cache, projections matérialisées) sans complexité opérationnelle d'un event store.
+
+C'est la combinaison la plus fréquente dans les SI métier à fort volume de lecture.
+
+### Quand ES sans CQRS
+
+- très rare en pratique ; envisageable si la **lecture est intrinsèquement faible** (back-office d'audit où l'on consulte rarement, mais on doit tout reconstituer) ;
+- l'effort de projection apparaît néanmoins dès qu'une UI a besoin d'une liste : on bascule de fait vers CQRS.
+
+### Adopter incrémentalement
+
+Une trajectoire prudente, observée en pratique :
+
+1. **Étape 0** — modèle riche DDD, persistance d'état, lectures via le même modèle. Suffit longtemps.
+2. **Étape 1** — quand les lectures deviennent un goulot ou que les vues divergent, introduire **CQRS** (projections de lecture, sans toucher l'écriture).
+3. **Étape 2** — quand un sous-domaine *core* exige audit, traçabilité ou rejouabilité (finance, santé, supply-chain régulée), introduire l'**Event Sourcing** sur ce sous-domaine seulement.
+
+> **Garde-fou.** Ne pas adopter CQRS+ES pour leur réputation. Chaque pattern porte un **coût opérationnel** (outillage, formation, débogage) qui se paie en cycles ingénieurs. Le bon ordre est : DDD tactique → CQRS si nécessaire → ES si vraiment nécessaire, **jamais l'inverse**.
+
+[🔝 Retour en haut de page](#table-des-matières)
+
 ## Événements de domaine et Event Sourcing
 
 ### Événement de domaine
@@ -697,11 +880,22 @@ Heuristique : *snapshoter* tous les *N* événements (50, 100…), garder l'hist
 
 ### Versionnage des événements
 
-Un événement persisté ne peut plus changer. Quand le métier évolue (ajout d'un champ, renommage), trois techniques coexistent :
+Un événement persisté ne peut plus changer. Quand le métier évolue (ajout d'un champ, renommage), trois techniques coexistent et se combinent :
 
-- **Upcaster** : transformation à la lecture qui adapte les anciens événements à la dernière version.
-- **Multiple émissions** : produire l'ancienne et la nouvelle version pendant une période de transition.
-- **Copy-and-replace** : reconstruire un nouveau flux à partir de l'ancien (lourd mais propre).
+- **Upcaster** : fonction pure appliquée à la **lecture** qui transforme un événement de version `v1` vers `v2`. Pattern classique : une chaîne d'upcasters (`v1 → v2 → v3`) tenue à jour. Avantage : pas de migration. Inconvénient : la chaîne s'allonge, et on porte le poids historique à chaque rejeu.
+- **Multiple émissions** (*double-write*) : produire pendant une période de transition à la fois `EvtV1` et `EvtV2` afin que les anciens consommateurs continuent à fonctionner. Coûteux en stockage, simple opérationnellement.
+- **Copy-and-replace** (*stream rewrite*) : créer un **nouveau flux** d'événements `vN+1` à partir de l'ancien, en transformant à la copie. Lourd (downtime ou bascule), mais nettoie la dette de format. Réservé aux refontes profondes.
+- **Tolérance à la lecture** (*tolerant reader*) : exiger des consommateurs qu'ils ignorent les champs inconnus et acceptent les défauts. Indispensable, complémentaire des trois autres.
+
+### Pièges récurrents (souvent sous-estimés)
+
+- **Schema evolution** : un événement publié il y a trois ans est toujours dans le store. Sans politique d'upcasters claire et **testée à l'intégration**, le moindre rename casse silencieusement les rejeux. Tester chaque upcaster contre des **fixtures historiques figées**.
+- **Reconstruction de read models** : les projections doivent pouvoir être **reconstruites de zéro** à tout moment (changement de modèle de lecture, bug de projecteur, ajout d'un nouvel index). Cela suppose une infrastructure de *replay* idempotente, des projections **purement déterministes** (pas d'appel à *now()* ou à un service externe en plein milieu).
+- **Volumétrie de l'event store** : sur un domaine très actif, le store grossit sans plafond. Anticiper l'archivage à froid, le partitionnement par flux, le coût de stockage long terme.
+- **Débogage en production** : aucun outil SQL ne dit *« quel est l'état actuel d'un agrégat ? »* ; il faut systématiquement rejouer. Investir dans un **viewer** d'event store et des outils de rejeu localisé est non négociable.
+- **Effets de bord interdits dans les agrégats** : un `apply(Event)` doit être **strictement déterministe**. Tout appel à un service, à `now()`, à un random, à un compteur de séquence externe pendant la reconstruction casse le rejeu.
+- **Évolution des invariants** : si une règle métier change, les anciens événements peuvent ne plus être *valides* selon la règle actuelle. Choisir : on respecte le passé tel qu'il a été (préférable, audit), ou on refuse les rejeux qui violent la règle (alors prévoir une compensation).
+- **Onboarding long** : un développeur senior met plusieurs semaines à devenir productif sur un système ES non trivial. Compter ce coût dans la décision d'adoption.
 
 ### Inconvénients à connaître
 
@@ -709,6 +903,59 @@ Un événement persisté ne peut plus changer. Quand le métier évolue (ajout d
 - requêtes ad-hoc impossibles sans projection préalable ;
 - débogage moins direct (l'état actuel est dérivé) ;
 - onboarding plus long pour les équipes.
+
+[🔝 Retour en haut de page](#table-des-matières)
+
+## Outbox Pattern : publication fiable des événements
+
+> **Définition — Outbox Pattern.** Pattern d'intégration popularisé par Chris Richardson et largement documenté chez Microsoft et Confluent : **persister l'événement à publier dans la même transaction que le changement d'état métier**, dans une table `outbox` dédiée, puis laisser un *relais* asynchrone le publier sur le bus. Indispensable dès qu'on dispose d'une base relationnelle et d'un broker distincts.
+
+### Le problème : la double écriture
+
+Sans Outbox, un Application Service classique fait deux écritures sur deux systèmes :
+
+1. `INSERT` ou `UPDATE` dans la base (via le Repository).
+2. `publish()` sur le broker (Kafka, RabbitMQ, SQS).
+
+Les deux ne sont pas dans la même transaction. Trois pannes possibles :
+
+| Scénario | Conséquence |
+|----------|-------------|
+| BDD écrite, broker indisponible | Etat changé, événement perdu — incohérence inter-services. |
+| BDD échoue, broker écrit | Etat non changé, événement publié à tort — consommateurs travaillent sur du faux. |
+| Crash entre les deux | Indéterminé ; selon l'ordre, l'un des deux cas précédents. |
+
+### Le pattern : une seule transaction locale
+
+```mermaid
+sequenceDiagram
+    participant AS as Application Service
+    participant DB as Base de données
+    participant OB as Outbox (table)
+    participant R as Relayer
+    participant Bus as Event Bus
+
+    AS->>DB: BEGIN
+    AS->>DB: UPDATE etat_metier
+    AS->>OB: INSERT outbox(event)
+    AS->>DB: COMMIT
+    Note over AS,DB: une seule transaction ACID
+    R->>OB: SELECT events non publiés
+    R->>Bus: publish(event)
+    R->>OB: marquer publié (ou supprimer)
+```
+
+L'agrégat et la ligne d'outbox sont écrits **atomiquement**. Le *relayer* garantit la publication *au moins une fois* ; aux consommateurs d'être idempotents.
+
+### Variantes
+
+- **Polling outbox** : le relayer interroge la table `outbox` à intervalle régulier. Simple, pas de configuration spéciale ; latence proportionnelle à la fréquence de polling.
+- **Transactional log tailing** (*CDC*, *Change Data Capture*) : on lit le journal de transaction de la base (par exemple via Debezium côté PostgreSQL/MySQL). Latence faible, mais opérationnellement plus exigeant.
+- **Listen/notify** (PostgreSQL) : la base notifie elle-même les nouveaux événements ; bonne latence, simple à mettre en œuvre.
+
+### Pourquoi c'est non-négociable en système distribué
+
+Sans Outbox, l'eventual consistency repose sur la chance. Avec Outbox, on a une **garantie d'au moins une publication** dès que la transaction métier réussit. C'est la fondation pratique de toute architecture événementielle sérieuse.
 
 [🔝 Retour en haut de page](#table-des-matières)
 
@@ -759,6 +1006,79 @@ final class PassageCommandeProcessManager {
     }
 }
 ```
+
+### Saga vs Process Manager : terminologie ambiguë
+
+> **Avertissement.** La littérature **n'est pas unanime** sur la frontière saga / process manager. Trois acceptions coexistent et il faut choisir explicitement la sienne dans l'équipe.
+
+| Auteur / source | Position |
+|-----------------|----------|
+| **Hector Garcia-Molina & Kenneth Salem (1987)** | *Saga* désigne historiquement un long-running transaction décomposé en transactions locales avec compensations. Aucune mention d'orchestration vs chorégraphie. |
+| **Vaughn Vernon (*IDDD*, 2013)** | Préfère *Process Manager* pour l'orchestration centralisée (un objet avec un état, qui consomme des événements et émet des commandes). Réserve *Saga* aux chorégraphies décentralisées. |
+| **Microsoft Patterns & Practices (CQRS Journey, 2012)** | Utilise *Saga* comme synonyme de *Process Manager*, indistinctement, pour l'orchestration. |
+| **Chris Richardson (*Microservices Patterns*, 2018)** | Utilise *Saga* comme terme parapluie, distingue *orchestration-based saga* et *choreography-based saga*. |
+| **Greg Young** | Tend à parler simplement de *Process Manager* pour l'objet de coordination, et d'*événements* pour la chorégraphie. |
+
+### Convention pratique
+
+Pour éviter les malentendus en équipe, formuler la convention en début de projet et l'inscrire dans le glossaire ubiquitaire :
+
+- soit on adopte **Vernon** : *Saga* = chorégraphie pure (pas de coordinateur), *Process Manager* = orchestrateur stateful ;
+- soit on adopte **Richardson** : *Saga* = terme parapluie, suffixé `-orchestrated` ou `-choreographed` selon le cas ;
+- soit on adopte **Microsoft** : les deux mots désignent indifféremment un coordinateur de workflow long.
+
+Aucun choix n'est plus juste qu'un autre — le pire est de les **mélanger** dans le code sans s'en rendre compte. Dans ce mémo, on retient la convention Vernon : *Saga* chorégraphiée, *Process Manager* orchestré.
+
+[🔝 Retour en haut de page](#table-des-matières)
+
+## Cohérence à terme : compensations et garanties
+
+> **Définition — eventual consistency.** Modèle de cohérence où plusieurs agrégats convergent vers un état cohérent **après un délai** (millisecondes à minutes), au lieu d'être tous mis à jour dans une transaction unique. Vernon en fait la norme inter-agrégats. Mais elle se paie : sans compensations soignées et garanties opérationnelles, on construit du **chaos asynchrone**.
+
+### Les trois familles de garanties à choisir explicitement
+
+| Garantie | Signification | Coût |
+|----------|---------------|------|
+| **At-most-once** | Le message est livré 0 ou 1 fois ; jamais dupliqué, mais peut se perdre. | Risque métier : ordres oubliés, événements perdus. À éviter sauf cas extrêmes. |
+| **At-least-once** | Le message est livré 1 ou plusieurs fois ; jamais perdu, mais peut être dupliqué. | Force les consommateurs à être **idempotents**. Standard de fait avec Outbox. |
+| **Exactly-once** | Promesse marketing courante, **rarement vraie de bout en bout** sans verrous distribués. | Très coûteuse ; remplaçable par at-least-once + idempotence (résultat équivalent, plus robuste). |
+
+### Idempotence : non négociable côté consommateur
+
+Tout consommateur d'Integration Event doit être **idempotent** : recevoir deux fois le même événement ne doit pas produire deux effets. Techniques :
+
+- **Identifiant de message stable** (`messageId` UUID) stocké dans une table `processed_messages` ; on ignore tout `messageId` déjà vu.
+- **Opérations naturellement idempotentes** : `setStatut(Confirmé)` plutôt qu'`incrémenter compteur`.
+- **Versionnage optimiste** : chaque agrégat porte un numéro de version ; toute commande référence la version attendue.
+
+### Compensations : les écrire avant d'en avoir besoin
+
+Une compensation est une **action métier** de sens contraire à une action déjà validée — pas un rollback technique. Règles :
+
+- **nommée dans le langage ubiquitaire** : `rembourserClient`, `libérerStock`, `annulerRéservation` (jamais `undoSomething`) ;
+- **idempotente** : si on rembourse deux fois la même demande, on rembourse une seule fois ;
+- **traçable** : chaque compensation laisse une trace (événement `RemboursementEffectue`) pour l'audit ;
+- **prévue à la conception** : pour chaque étape d'une saga, on écrit explicitement la compensation associée *avant* de mettre en production.
+
+### Pannes typiques et stratégies
+
+| Panne | Stratégie de récupération |
+|-------|---------------------------|
+| Étape échoue de manière transitoire (timeout broker) | *Retry* avec *backoff* exponentiel ; idempotence requise. |
+| Étape échoue durablement (paiement refusé) | Compensation des étapes précédentes ; notification métier. |
+| Compensation elle-même échoue | *Dead letter queue* + intervention humaine ; alerter, ne pas masquer. |
+| Message hors d'ordre (commande après confirmation) | Versionnage optimiste sur l'agrégat ; rejet ou réordonnancement. |
+| Boucle infinie de compensations mutuelles | Plafond du nombre de tentatives ; *circuit breaker* ; bascule manuelle. |
+
+### Visibilité opérationnelle
+
+Une architecture eventually consistent **sans observabilité** est ingérable en production. Investir dans :
+
+- **traçage distribué** (OpenTelemetry) : un même `traceId` traverse tous les services et événements ;
+- **dashboards par saga** : combien sont en cours, combien ont compensé, combien sont en *dead letter* ;
+- **alertes sur le delta de cohérence** : si plus de N minutes entre `CommandePassee` et `FactureEmise`, alerter.
+
+> **Garde-fou.** L'eventual consistency n'est pas *« on s'en occupera plus tard »*. C'est un **engagement métier** : on a accepté qu'à un instant `t`, deux contextes voient l'état différemment. Cela doit être **explicitement validé** avec le métier (par exemple : *« le client peut voir une commande passée avant que la facture soit émise, c'est OK »*). Si le métier dit non, c'est qu'il faut soit fusionner les agrégats, soit accepter une transaction distribuée — pas hand-waver.
 
 [🔝 Retour en haut de page](#table-des-matières)
 
@@ -853,6 +1173,70 @@ graph LR
     B --> D[ClientPremium]
     B --> E[Composition: ET / OU / NON]
 ```
+
+[🔝 Retour en haut de page](#table-des-matières)
+
+## DDD fonctionnel : modéliser sans objets
+
+> **Définition — DDD fonctionnel.** Le DDD est un ensemble de **principes de modélisation**, pas un style de programmation. Les concepts (langage ubiquitaire, bounded contexts, agrégats comme frontières de cohérence, événements de domaine) se transposent **naturellement en programmation fonctionnelle** (F#, OCaml, Haskell, Elixir, Scala, Clojure). Scott Wlaschin formalise cette approche dans *Domain Modeling Made Functional* (Pragmatic Bookshelf, 2018).
+
+### Pourquoi ça marche aussi bien (et parfois mieux)
+
+- **Immutabilité native** : un objet-valeur est un *record* immuable par défaut. Pas besoin d'imposer la discipline en review, le langage la garantit.
+- **Types-sommes** (*sum types*, *discriminated unions*) : un `StatutCommande` qui peut être `Brouillon | Passée | Annulée(motif)` se modélise en une déclaration ; le compilateur force le traitement de chaque cas. En OO, cela demande une hiérarchie ou un `enum` sans état.
+- **Validation par le type** : `Email`, `Iban`, `Money` sont des types parsés (*parse, don't validate*, Alexis King) ; un `Email` non valide ne **peut pas** exister dans le programme. Aucune assertion défensive nécessaire.
+- **Workflow comme fonction** : un cas d'usage est une fonction `(input) -> Result<output, error>` ; les Application Services deviennent des compositions de fonctions, sans état caché.
+- **Événements comme sortie** : un agrégat fonctionnel renvoie `(état', événements)` au lieu de muter en place. Plus simple à tester, à auditer, à event-sourcer.
+
+### Exemple en F# (esquisse)
+
+```fsharp
+// Objets-valeurs : types parsés
+type ClientId = ClientId of System.Guid
+type Money = { Centimes: int; Devise: Devise }
+type StatutCommande =
+    | Brouillon
+    | Passee
+    | Annulee of motif: string
+
+// Agrégat : record immuable
+type Commande = {
+    Id: CommandeId
+    Client: ClientId
+    Lignes: LigneCommande list
+    Statut: StatutCommande
+}
+
+// Cas d'usage : fonction pure
+type PasserCommande = Commande -> Result<Commande * CommandePasseeEvent, ErreurMetier>
+
+let passer (cmd: Commande) : Result<Commande * CommandePasseeEvent, ErreurMetier> =
+    match cmd.Statut, cmd.Lignes with
+    | Brouillon, [] -> Error CommandeVide
+    | Brouillon, _  -> Ok ({ cmd with Statut = Passee }, CommandePasseeEvent cmd.Id)
+    | _ -> Error CommandeDejaPassee
+```
+
+### Tableau de correspondance OO ↔ fonctionnel
+
+| Concept DDD | OO classique | Fonctionnel |
+|-------------|--------------|-------------|
+| Entité | Classe avec identité, attributs mutables | *Record* immuable, transformé par `evolve : State -> Cmd -> State * Event list` |
+| Objet-valeur | Classe finale immuable | *Record* ou *type alias* avec smart constructor |
+| Agrégat | Classe racine + entités internes encapsulées | Fonction `decide : State -> Cmd -> Result<Event list, Error>` |
+| Domain Service | Classe sans état | Fonction de plusieurs paramètres |
+| Repository | Interface définie par le domaine | *Type abstrait* `Save : State -> Async<Unit>` |
+| Application Service | Classe orchestratrice | Composition de fonctions ; effets isolés en bordure |
+| Event Sourcing | Liste mutable d'événements appliqués | `fold (apply: State -> Event -> State) initial events` |
+
+### Quand ça vaut le détour
+
+- équipe à l'aise avec un langage fonctionnel ou prête à investir ;
+- domaine **riche en états et transitions** (workflows, machines à états, calculs financiers) ;
+- exigence forte de **vérification par le compilateur** (sécurité, finance, santé) ;
+- intérêt pour l'**Event Sourcing** : la combinaison fonctionnel + ES est particulièrement naturelle.
+
+> **Note.** Ne pas confondre *langage fonctionnel* et *style fonctionnel en OO*. Kotlin, TypeScript, Python permettent largement le style record + sum-type + fonction pure ; Java (depuis 21, *records* + *sealed types*) aussi. Les principes du DDD fonctionnel s'appliquent dès qu'on dispose de ces briques, indépendamment du langage choisi.
 
 [🔝 Retour en haut de page](#table-des-matières)
 
@@ -1118,6 +1502,45 @@ Adoptés pour leur réputation, sans besoin métier ni équipe formée. Coût op
 
 [🔝 Retour en haut de page](#table-des-matières)
 
+## Le côté obscur : DDD comme jeu de vocabulaire
+
+> **Avertissement.** Le risque le plus subtil avec le DDD n'est pas l'erreur technique : c'est le **mimétisme superficiel** où l'on renomme tout en *« domain »* sans rien changer à la pensée. Cette dérive est fréquente après une formation rapide ou la lecture distraite d'un livre.
+
+### Les symptômes du DDD-théâtre
+
+- `OrderService` est rebaptisé `OrderApplicationService` — le code reste un *transaction script* anémique. Aucun gain.
+- Tout dossier porte un suffixe `Domain`, `Infrastructure`, `Application`, mais les classes circulent allègrement entre eux. La séparation est cosmétique.
+- Le glossaire métier compte 200 termes — copiés depuis Wikipédia. Aucun expert métier ne le relit, aucun nouveau terme n'y entre.
+- Les entités sont décorées en `@Entity` ORM avec des getters/setters publics, doublées d'un `Service` qui contient toute la logique. **Modèle anémique sous vernis DDD**.
+- Les *Domain Events* sont en réalité des hooks ORM (`@PostPersist`) qui exposent l'état brut, sans intention métier.
+- L'équipe parle de *« nos agrégats »* mais aucun n'est défendu (pas d'invariant testé, pas de méthode métier, pas d'encapsulation).
+
+### Les questions diagnostiques
+
+Pour mesurer si le DDD est *réel* ou *théâtral* dans une base de code, poser :
+
+1. *« Combien de méthodes métier sur les agrégats ? Combien de getters/setters publics ? »* — Si le second domine, c'est anémique.
+2. *« Le métier reconnaît-il les noms du code ? »* — Si non, le langage ubiquitaire est un slogan.
+3. *« Qui a écrit le glossaire et quand a-t-il été modifié pour la dernière fois ? »* — Si la réponse est *« un dev, il y a six mois »*, le glossaire est mort.
+4. *« Quelle règle métier non triviale est testée au niveau de l'agrégat ? »* — Si la réponse est *« aucune »*, le modèle est décoratif.
+5. *« Que se passe-t-il quand on essaie de mettre l'agrégat dans un état invalide ? »* — Si le code l'autorise, ce n'est pas un agrégat.
+
+### Le cargo-cult de l'arborescence
+
+Une arborescence `Domain/`, `Application/`, `Infrastructure/` parfaite **ne dit rien** sur la qualité du modèle. Inversement, du **bon DDD** peut vivre dans une arborescence plate si les principes (modèle riche, langage ubiquitaire, frontières d'agrégats) sont respectés. La structure des dossiers est un **indice secondaire**, pas un critère.
+
+### Sortir du théâtre
+
+- mesurer la **densité métier** par classe (nombre de méthodes qui décident, vs nombre qui exposent) ;
+- imposer en review : *« quel invariant cette méthode défend-elle ? »* — si la réponse est *« aucun »*, ce n'est pas une méthode d'agrégat ;
+- réviser le **glossaire** avec un expert métier toutes les N semaines, supprimer les termes morts ;
+- proscrire les **getters publics** sur les entités sauf justification explicite (sortie pour la persistance, lecture côté query) ;
+- relier chaque classe aux **invariants** qu'elle protège, en commentaire ou ADR. Si on ne sait pas, c'est probablement à supprimer ou refondre.
+
+> **Bilan.** Renommer ne suffit pas. Le DDD est un **changement de focale** (le métier au centre), pas une convention de nommage. Une équipe qui a *vraiment* adopté le DDD parle un dialecte commun avec son métier, défend ses invariants, et discute ses frontières — pas seulement ses suffixes de classe.
+
+[🔝 Retour en haut de page](#table-des-matières)
+
 ## DDD et architectures voisines
 
 Le DDD n'impose **pas** d'architecture technique. Il en suggère une famille — celles qui isolent le domaine — et se marie bien avec plusieurs courants.
@@ -1157,14 +1580,82 @@ Mêmes intentions que l'hexagonal : isoler le domaine. Le DDD vit aussi bien dan
 
 [🔝 Retour en haut de page](#table-des-matières)
 
+## Monolithe modulaire vs microservices
+
+> **Définition — monolithe modulaire.** Application **déployée en une seule unité** mais structurée en **modules internes étanches**, chacun aligné sur un Bounded Context, communiquant exclusivement via des contrats explicites (interfaces publiques, événements internes, jamais d'accès direct aux internes des autres modules). Concept popularisé par Simon Brown (*Modular Monoliths*) et systématisé par DHH, Shopify, Stack Overflow.
+
+### DDD ne dit pas microservices
+
+Le livre d'Eric Evans (2003) **précède** la vague microservices (≈ 2014). Le DDD vit aussi bien — souvent **mieux** — dans un monolithe modulaire. Le couplage culturel *« DDD ⇒ microservices »* est récent et trompeur.
+
+### Comparatif honnête
+
+| Dimension | Monolithe modulaire | Microservices |
+|-----------|---------------------|---------------|
+| Bounded Contexts | Un module = un contexte. Frontière logique. | Un service = un contexte. Frontière physique. |
+| Cohérence inter-contextes | Possible en transaction locale (avec discipline). | Eventual consistency obligatoire. |
+| Refactoring inter-contextes | Aisé : `move-class` IDE entre modules. | Coûteux : versions d'API, double déploiement. |
+| Déploiement | Une unité, une release. | Indépendant par service ; pipelines plus complexes. |
+| Scalabilité | Verticale ; ou horizontalement par instance complète. | Horizontale par service ; granulaire. |
+| Observabilité | Logs locaux, debug pas-à-pas. | Tracing distribué obligatoire. |
+| Coût d'entrée | Faible : un repo, un build. | Élevé : orchestration, broker, observability stack. |
+| Coût d'évolution | Croît avec la taille du repo. | Croît avec le nombre de services et leurs contrats. |
+
+### Quand chaque choix se justifie
+
+**Monolithe modulaire** :
+
+- équipe < 30 développeurs ;
+- besoin de cohérence forte fréquente entre contextes ;
+- pas de pression de scalabilité hétérogène ;
+- DDD encore en cours d'apprentissage (commencer logique avant physique).
+
+**Microservices** :
+
+- équipes nombreuses qui doivent livrer en **parallèle** sans synchronisation ;
+- contextes avec **profils de charge** très différents (un service à 10 RPS, un autre à 10 000 RPS) ;
+- besoin d'**isolation** technique (langages, bases, équipes) ;
+- maturité opérationnelle confirmée (CI/CD, observabilité, chaos engineering).
+
+### Trajectoire prudente
+
+Une équipe qui adopte le DDD aujourd'hui gagne presque toujours à :
+
+1. **commencer en monolithe modulaire** : un repo, un build, des modules clairement séparés ;
+2. **respecter les Bounded Contexts dès le code** : pas d'import croisé, pas d'accès direct aux entités des autres modules ;
+3. **publier des Domain Events / Integration Events en interne** comme si les modules étaient déjà distants ;
+4. **n'extraire un microservice que sur signal explicite** : besoin d'autonomie de déploiement, profil de charge divergent, équipe dédiée justifiant la séparation.
+
+> **Garde-fou.** Un monolithe modulaire bien fait se découpe en microservices *quand on en a besoin* ; un mauvais monolithe ne se découpe jamais proprement. Inversement, des microservices construits sans avoir d'abord pratiqué le découpage logique aboutissent au *distributed monolith* — le pire des deux mondes : couplage de monolithe, complexité de microservices. **L'ordre compte** : modélisation stratégique d'abord, choix de distribution ensuite.
+
+```mermaid
+graph LR
+    A[Modélisation<br/>stratégique<br/>Bounded Contexts] --> B[Monolithe<br/>modulaire]
+    B --> C{Signal<br/>d'extraction ?}
+    C -- non --> B
+    C -- oui --> D[Microservices<br/>par contexte]
+```
+
+[🔝 Retour en haut de page](#table-des-matières)
+
 ## Pour aller plus loin
 
-- *Domain-Driven Design: Tackling Complexity in the Heart of Software* — Eric Evans (le « livre rouge »)
-- *Implementing Domain-Driven Design* — Vaughn Vernon (le « livre jaune »)
-- *Patterns, Principles, and Practices of Domain-Driven Design* — Scott Millett, Nick Tune
+- *Domain-Driven Design: Tackling Complexity in the Heart of Software* — Eric Evans (le « livre rouge », 2003)
+- *Implementing Domain-Driven Design* — Vaughn Vernon (le « livre jaune », 2013)
+- *Domain-Driven Design Distilled* — Vaughn Vernon (2016) — synthèse courte et accessible
+- *Domain Modeling Made Functional* — Scott Wlaschin (2018) — DDD en F#, *parse don't validate*, types-sommes
+- *Patterns, Principles, and Practices of Domain-Driven Design* — Scott Millett, Nick Tune (2015)
+- *Learning Domain-Driven Design* — Vlad Khononov (O'Reilly, 2021) — moderne, pragmatique
+- *Microservices Patterns* — Chris Richardson (Manning, 2018) — *Saga*, *Outbox*, *CDC*
+- *CQRS Documents by Greg Young* — synthèse historique de CQRS / Event Sourcing
+- *Building Event-Driven Microservices* — Adam Bellemare (O'Reilly, 2020)
+- *Designing Data-Intensive Applications* — Martin Kleppmann (O'Reilly, 2017) — fondations event-driven, cohérence, replication
 - [DDD Reference (PDF)](https://www.domainlanguage.com/wp-content/uploads/2016/05/DDD_Reference_2015-03.pdf) — synthèse officielle d'Eric Evans
-- [DDD Crew](https://github.com/ddd-crew) — outils, *Bounded Context Canvas*, *Event Storming*
+- [DDD Crew](https://github.com/ddd-crew) — outils, *Bounded Context Canvas* (Nick Tune), *Aggregate Design Canvas*, *Core Domain Chart*
+- [Bounded Context Canvas (template)](https://github.com/ddd-crew/bounded-context-canvas) — Nick Tune
 - [EventStorming](https://www.eventstorming.com/) — méthode collaborative d'Alberto Brandolini
+- [Modular Monolith Primer](https://martinfowler.com/articles/2024-evaluate-architecture.html) — Martin Fowler & co.
+- [Microsoft — CQRS Journey](https://learn.microsoft.com/en-us/previous-versions/msp-n-p/jj554200(v=pandp.10)) — retour d'expérience long sur CQRS+ES
 
 ## Licence
 
