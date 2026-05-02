@@ -125,106 +125,122 @@ Règle pratique : **commencer toujours par le stratégique**. Un découpage en c
 
 Modéliser un domaine, c'est extraire les concepts essentiels d'un métier et les organiser en un modèle compréhensible et exécutable. Le modèle n'est pas la réalité : c'est une simplification utile, négociée avec les experts métier.
 
-### Démarche en quatre temps
+> **Avertissement — modéliser n'est pas dessiner toutes les classes à l'avance.** La tentation classique consiste à dérouler une séquence en cascade : « j'écoute le métier, je dessine un diagramme UML avec tous les attributs, je choisis une notation, puis je code ». C'est du **Big Design Up Front**, et c'est l'anti-thèse du **TDD** comme du DDD moderne. Dans la pratique, le modèle **émerge** au fur et à mesure des tests d'acceptation et des conversations avec le métier ; le diagramme n'est qu'une trace fugace de la conversation, pas un livrable contractuel à graver.
 
-1. [Comprendre les concepts métier](#1-comprendre-les-concepts-métier)
-2. [Identifier entités, attributs et relations](#2-identifier-entités-attributs-et-relations)
-3. [Choisir une notation adaptée](#3-choisir-une-notation-adaptée)
-4. [Itérer avec les experts métier](#4-itérer-avec-les-experts-métier)
+### Une démarche itérative et test-driven
 
-### 1. Comprendre les concepts métier
+DDD et TDD se renforcent : le langage ubiquitaire alimente le nom des tests ; les tests font émerger les invariants du domaine. La démarche réelle ressemble à ceci, en boucle, sur chaque tranche fonctionnelle :
 
-Avant tout code, on s'imprègne du domaine. Les techniques utiles :
+```mermaid
+graph LR
+  A[Conversation métier] --> B[Test d'acceptation<br/>en langage ubiquitaire]
+  B --> C[Implémentation minimale<br/>red → green]
+  C --> D[Refactor :<br/>extraire VO, agrégat, service]
+  D --> E[Trace : diagramme,<br/>glossaire, ADR]
+  E --> A
+```
+
+Chaque tour produit un **petit incrément** : un test qui passe, un VO ou une méthode d'agrégat qui apparaît, une note ajoutée au glossaire. **Aucun diagramme n'est posé "définitif" avant le code.** Le diagramme sert à se faire comprendre dans la salle, pas à dicter l'implémentation.
+
+#### Étape 1 — Imprégnation du domaine
+
+Avant le premier test, on s'imprègne. Les techniques utiles :
 
 - entretiens individuels avec les experts métier ;
 - lecture des spécifications, contrats, manuels existants ;
 - observation directe des utilisateurs (*shadowing*) ;
-- ateliers d'[Event Storming](https://www.eventstorming.com/) (Alberto Brandolini) pour cartographier collectivement les événements clés.
+- ateliers d'**Event Storming** (Alberto Brandolini, voir <https://www.eventstorming.com/>) pour cartographier collectivement les événements *passés au sens grammatical* (`Compte ouvert`, `Versement effectué`, `Découvert autorisé`).
 
-Exemple, sur un domaine bancaire, des concepts qui émergent :
+Le rendu d'un Event Storming, ce sont des post-it oranges (événements) sur un mur, pas une UML. C'est volontaire : le format empêche la tentation de figer un schéma de données prématurément.
 
-```mermaid
-graph TD
-  A[Domaine bancaire]
-  A --> B[Client]
-  A --> C[Compte]
-  A --> D[Transaction]
-  A --> E[Type de compte]
-  C --> I[Numéro de compte]
-  C --> J[Solde]
-  D --> L[Montant]
-  D --> N[Compte source]
-  D --> O[Compte destination]
-  E --> P[Compte courant]
-  E --> Q[Compte épargne]
+#### Étape 2 — Premier test d'acceptation
+
+On choisit **un** scénario simple, formulé en langage ubiquitaire, et on l'écrit en test **avant** d'avoir tranché les types et attributs. Exemple :
+
+```php
+public function test_un_versement_credite_le_compte_destinataire(): void
+{
+    // Given
+    $compte = Compte::ouvrir(Iban::de('FR76...'));
+    // When
+    $compte->verser(Money::eur(100));
+    // Then
+    $this->assertEquals(Money::eur(100), $compte->solde());
+}
 ```
 
-### 2. Identifier entités, attributs et relations
+À ce stade, ni `Iban`, ni `Money`, ni `Compte::verser()` n'existent. C'est l'écriture du test qui force leur apparition. Aucune liste exhaustive d'attributs n'a été décidée.
 
-Une fois les concepts dégagés, on les classe :
+#### Étape 3 — Implémentation minimale (red → green)
 
-- **Entités** : objets identifiés (un `Client` reste le même client même si son nom change).
-- **Attributs** : propriétés caractérisant une entité ou un objet-valeur.
-- **Relations** : liens entre entités, avec leur cardinalité (`1-1`, `1-n`, `n-m`).
+On code le strict nécessaire pour que le test passe : `Compte` avec une méthode `verser`, `Money` immuable, `Iban` value-object qui valide. Pas plus. Le test est vert.
 
-```mermaid
-graph LR
-  A[Client]
-  A --> B[nom]
-  A --> C[prenom]
-  A --> E[Compte]
-  E --> F[numéro]
-  E --> G[solde]
-  E --> I[Transaction]
-  I --> J[montant]
-  I --> L[compte source]
-  I --> M[compte destination]
-```
+#### Étape 4 — Refactor sous filet de tests
 
-### 3. Choisir une notation adaptée
+On extrait, on renomme, on regroupe. C'est ici que les **patterns tactiques DDD** apparaissent organiquement : « ces deux primitives forment un VO `IntervaleDeDates` », « `Compte` doit empêcher un solde négatif sans autorisation : c'est l'invariant racine de l'agrégat, on le défend dans la méthode `verser()` ».
 
-| Notation | Forces | Limites |
-|----------|--------|---------|
-| Diagrammes de classe UML | Précis, normalisés | Verbeux, peuvent intimider le métier |
-| Diagrammes de flux / BPMN | Adaptés aux processus | Moins adaptés à la structure |
-| Mind maps | Rapides, collaboratifs | Pas de sémantique stricte |
-| Event Storming (post-it) | Excellents en atelier métier | Volatil, à transcrire |
+#### Étape 5 — Trace écrite
 
-Outils libres usuels : [PlantUML](https://plantuml.com/), [Mermaid](https://mermaid.js.org/), [draw.io](https://app.diagrams.net/).
+À la fin du tour, on capture **uniquement ce qui est utile pour la conversation suivante** :
 
-Exemple de diagramme de classes pour le domaine bancaire :
+- une ligne ajoutée au **glossaire** du langage ubiquitaire (`Versement : transfert positif vers un compte. Voir aussi : Découvert autorisé`).
+- éventuellement un diagramme rapide (Mermaid, post-it photographié) à valider avec le métier.
+- un **ADR** (*Architecture Decision Record*) si une décision structurante vient d'être prise (« on choisit l'agrégat `Compte` plutôt que `Client` comme racine pour les versements »).
+
+> **Pourquoi cet ordre est crucial.** Si l'on commençait par dessiner un diagramme de classes complet de `Client`/`Compte`/`Transaction` avec tous leurs attributs (`nom`, `prenom`, `dateNaissance`, `numero`, `solde`, `montant`, `date`...) on figerait une représentation **anémique** : des sacs de données, sans comportement, sans invariants. C'est l'origine du *modèle anémique* listé plus loin dans les pièges. Le modèle riche se construit *par* le test, pas avant.
+
+### Quand utiliser un diagramme — et lequel
+
+Un diagramme reste utile pour **communiquer**, jamais pour **prescrire**. Choisir l'outil selon l'audience :
+
+| Besoin                                    | Outil approprié                       | Quand l'utiliser                                          |
+| ----------------------------------------- | ------------------------------------- | --------------------------------------------------------- |
+| Découvrir le domaine avec le métier       | Event Storming, post-it muraux        | Atelier de cadrage, premier contact                       |
+| Visualiser un flux d'événements         | Mermaid `sequenceDiagram`             | Discussion sur une saga / process manager               |
+| Tracer une décision structurante         | ADR (texte) + petit schéma Mermaid    | Choix de bounded context, choix d'agrégat racine        |
+| Communiquer une *photo* du modèle actuel | Diagramme de classes UML (Mermaid)    | Onboarding, revue de code, *jamais* avant de coder       |
+| Cartographier les Bounded Contexts       | **Context Map** (DDD Crew template)   | Conception stratégique, discussion entre équipes        |
+
+Outils libres usuels : [PlantUML](https://plantuml.com/), [Mermaid](https://mermaid.js.org/), [draw.io](https://app.diagrams.net/), [Miro](https://miro.com/) pour l'Event Storming distant.
+
+> **Note sur l'UML.** Présent dans le livre d'Evans (2003), il a été détrôné dans la pratique par des notations plus légères. Vaughn Vernon et Eric Evans lui-même recommandent aujourd'hui des diagrammes de séquence (pour les flux) plutôt que des diagrammes de classes (qui invitent au modèle anémique). Le diagramme de classes ci-dessous est volontairement minimal et placé **après** la conversation et les tests, pas avant.
 
 ```mermaid
 classDiagram
-    class Client {
-        +String nom
-        +String prenom
-        +Date dateDeNaissance
-        +List~Compte~ comptes
-    }
     class Compte {
-        +String numero
-        +Money solde
-        +List~Transaction~ transactions
+        -Iban iban
+        -Money solde
+        -bool découvertAutorisé
+        +ouvrir(Iban) Compte
+        +verser(Money) void
+        +retirer(Money) void
+        +solde() Money
     }
-    class Transaction {
-        +UUID id
-        +Money montant
-        +Date date
+    class Money {
+        <<value object>>
+        -int centimes
+        -Currency devise
+        +plus(Money) Money
+        +moins(Money) Money
     }
-    Client "1" --> "*" Compte
-    Compte "1" --> "*" Transaction : source
-    Compte "1" --> "*" Transaction : destination
+    class Iban {
+        <<value object>>
+    }
+    Compte "1" o--> "1" Iban
+    Compte ..> Money : utilise
 ```
 
-### 4. Itérer avec les experts métier
+Notez : on expose des **comportements** (`verser`, `retirer`), pas des champs publics. C'est la différence entre un *modèle anémique* (sac de getters/setters) et un *modèle riche* (qui défend ses invariants).
 
-Le modèle naît d'aller-retours. Conseils :
+### Itérer avec les experts métier
 
-- **Ateliers réguliers** plutôt que validations ponctuelles.
-- **Vocabulaire ubiquitaire** : utiliser dans les diagrammes les mots exacts du métier.
-- **Représentation visuelle** : un diagramme corrige plus vite qu'un texte.
-- **Itérer** : un modèle figé devient inexact au premier changement métier.
+La conception émerge d'aller-retours soutenus avec le métier. Quelques règles non négociables :
+
+- **Ateliers réguliers** plutôt que validations ponctuelles : préférer un atelier d'1 h par semaine à une revue de spec mensuelle.
+- **Vocabulaire ubiquitaire** appliqué partout — diagrammes, tests, code. Si le métier dit *« contrat cadre »*, ni le code ni les tests ne doivent jamais utiliser un autre mot (cf. section *Langage ubiquitaire*).
+- **Démos plutôt que diagrammes** : montrer un test vert ou une commande exécutable convainc plus vite qu'un schéma en grand format. Le diagramme reste un appui ponctuel.
+- **Modéliser ce qui change ensemble** : la frontière d'un agrégat se trouve à la lecture des invariants, pas en dessinant des cardinalités.
+- **Refuser le modèle figé** : tout modèle vit. Un modèle qui ne change plus au bout de six mois est probablement déjà mort, ou il décrit un sous-domaine *generic* qui ne valait pas qu'on y mette autant d'effort.
 
 [🔝 Retour en haut de page](#table-des-matières)
 
