@@ -65,7 +65,7 @@ classDiagram
         +Money prixUnitaire
     }
     class AdresseLivraison
-    Commande "1" --> "*" LigneCommande : contient
+    Commande "1" --> "·" LigneCommande : contient
     Commande "1" --> "1" AdresseLivraison : livre à
 ```
 

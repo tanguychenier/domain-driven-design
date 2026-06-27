@@ -24,7 +24,7 @@ graph LR
         LigneFacture
         Paiement
     end
-    Catalogue -. "Published Language\n(ProduitDescriptor)" .-> Commande
+    Catalogue -. "Published Language\n ProduitDescriptor" .-> Commande
     Commande -- "CommandePassee" --> Facturation
     Facturation -- "PaiementEncaisse" --> Commande
 ```
